@@ -1,5 +1,5 @@
 # File: .github/workflows/repo-sync.yml
-name: merge-from-master
+name: merge-from-master 
 on:
   schedule:
     - cron: '1 0-15/3 * * *'
