@@ -1,6 +1,7 @@
 
 const path = require('path')
-const { scheduler } = require('../utils/scheduler')
+const { buildArgs } = require('../utils/util')
+const { default: PQueue } = require('p-queue');
 
 exports.command = 'unicom'
 
@@ -35,53 +36,36 @@ exports.builder = function (yargs) {
 
 exports.handler = async function (argv) {
   var command = argv._[0]
-  var accounts = []
-  if ('accountSn' in argv && argv.accountSn) {
-    let accountSns = (argv.accountSn + '').split(',')
-    for (let sn of accountSns) {
-      if (('user-' + sn) in argv) {
-        let account = {
-          cookies: argv['cookies-' + sn],
-          user: argv['user-' + sn] + '',
-          password: argv['password-' + sn] + '',
-          appid: argv['appid-' + sn],
-          tasks: argv['tasks-' + sn] || argv['tasks']
-        }
-        if (('tryrun-' + sn) in argv) {
-          account['tryrun'] = true
-        }
-        accounts.push(account)
-      }
-    }
-  } else {
-    accounts.push({
-      cookies: argv['cookies'],
-      user: argv['user'] + '',
-      password: argv['password'] + '',
-      appid: argv['appid'],
-      tasks: argv['tasks']
-    })
-  }
-  console.log('总账户数', accounts.length)
+  let accounts = buildArgs(argv)
+  console.info('总账户数', accounts.length)
+  let concurrency = 1
+  let queue = new PQueue({ concurrency });
   for (let account of accounts) {
-    await require(path.join(__dirname, 'tasks', command, command)).start({
-      cookies: account.cookies,
-      options: {
-        appid: account.appid,
-        user: account.user,
-        password: account.password
-      }
-    }).catch(err => console.log("unicom任务:", err))
-    let hasTasks = await scheduler.hasWillTask(command, {
-      tryrun: 'tryrun' in argv,
-      taskKey: account.user
-    })
-    if (hasTasks) {
-      scheduler.execTask(command, account.tasks).catch(err => console.log("unicom任务:", err)).finally(() => {
-        console.log('当前任务执行完毕！')
+    queue.add(async () => {
+      let { scheduler } = require('../utils/scheduler')
+      await require(path.join(__dirname, 'tasks', command, command)).start({
+        cookies: account.cookies,
+        options: account
+      }).catch(err => console.info("unicom任务:", err))
+      let hasTasks = await scheduler.hasWillTask(command, {
+        tryrun: 'tryrun' in argv,
+        taskKey: account.user,
+        tasks: account.tasks
       })
-    } else {
-      console.log('暂无可执行任务！')
-    }
+      if (hasTasks) {
+        await scheduler.execTask(command, account.tasks).catch(err => console.error("unicom任务:", err)).finally(() => {
+          if (Object.prototype.toString.call(scheduler.taskJson.rewards) === '[object Object]') {
+            console.info('今日获得奖品信息统计')
+            for (let type in scheduler.taskJson.rewards) {
+              console.info(`\t`, type, scheduler.taskJson.rewards[type])
+            }
+          }
+          console.info('当前任务执行完毕！')
+        })
+      } else {
+        console.info('暂无可执行任务！')
+      }
+    })
   }
-}  
+  await queue.onIdle()
+}
