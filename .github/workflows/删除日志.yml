@@ -1,4 +1,4 @@
-name: 删除日志
+name: 自助删除日志
 on:
   workflow_dispatch:
     inputs:
@@ -9,7 +9,7 @@ on:
       runs: #要为每个yml保留的个数
         description: 'Number of runs.'
         required: true
-        default: 6
+        default: 3
      
     schedule:
         - cron: '10 0 * * *'
